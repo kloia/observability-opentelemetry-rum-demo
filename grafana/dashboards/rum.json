@@ -14,7 +14,7 @@
       "description": "documentLoad spans from the browser. TraceQL metrics, no Prometheus involved.",
       "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
       "datasource": { "type": "tempo", "uid": "tempo" },
-      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         {
           "refId": "A",
@@ -37,7 +37,7 @@
           "refId": "A",
           "datasource": { "type": "tempo", "uid": "tempo" },
           "queryType": "traceql",
-          "query": "{ resource.service.name = \"juice-shop-frontend\" && name = \"click\" } | rate()"
+          "query": "{ resource.service.name = \"juice-shop-frontend\" && span.event_type = \"click\" } | rate()"
         }
       ]
     },
@@ -81,7 +81,7 @@
       "title": "Backend latency by route (p95)",
       "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
       "datasource": { "type": "tempo", "uid": "tempo" },
-      "fieldConfig": { "defaults": { "unit": "ms" }, "overrides": [] },
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] },
       "targets": [
         {
           "refId": "A",

@@ -33,6 +33,7 @@ container-to-container address on the compose network, not the public one.
 | --- | --- |
 | `infra/` | Terraform: one EC2 (Amazon Linux 2023, Docker pre-installed via `user_data`) + one security group |
 | `overlay/` | The only code this repo owns: `tracer.ts` + patched `main.ts`/`frontend/package.json` (frontend), `tracing.ts` + patched `app.ts`/`package.json` (backend) |
+| `docs/changes/` | Every change as before / after, one file each, starting at [docs/changes/README.md](docs/changes/README.md) |
 | `setup.sh` | Clones Juice Shop, applies the overlay, runs `docker compose up --build` |
 | `docker-compose.yml`, `otel-collector-config.yaml`, `tempo.yaml`, `grafana/` | The observability stack, including a provisioned RUM dashboard (`grafana/dashboards/rum.json`) |
 
@@ -94,13 +95,16 @@ out of clicks.
 Open `grafana_url`, log in as `admin` with the password `setup.sh` printed at the end of its
 run (it generates one and passes it to Compose — Grafana's port is public, so it is never
 left at a weak default), and go to **Explore → Tempo**. Search by service name
-`juice-shop-frontend`. A trace should show:
+`juice-shop-frontend`. You should see three kinds of traces, each in its own trace:
 
-- a document-load span (`documentFetch`, `resourceFetch`, `domContentLoadedEvent`),
-- a user-interaction span for the click,
-- fetch spans for the API calls that click triggered.
+- `documentLoad`, one per page load,
+- `click`, one per user click,
+- `GET` / `POST`, one per API call the browser made.
 
-A fourth: expand the backend's own span under the same trace. The fetch call was same-origin,
+In this setup a click is *not* the parent of the API calls it triggers: they show up as
+separate traces (we did not dig into why; Angular's zone handling is the first suspect).
+What does join is fetch to backend: open a `GET` trace and expand the backend's own span
+under the same trace. The fetch call is same-origin,
 so the browser already sent `traceparent` with it — `overlay/tracing.ts` auto-instruments the
 backend (`getNodeAutoInstrumentations`) so it reads that header and creates a matching server
 span, closing the loop into a real distributed trace with no extra frontend code.
@@ -132,6 +136,21 @@ metrics-generator involved:
 | Backend latency by route (p95) | `{ resource.service.name = "juice-shop-backend" && kind = server } \| quantile_over_time(duration, .95) by (span.http.route)` |
 
 ![RUM dashboard: five panels — page load p95, click rate, fetch rate, backend request rate by route, backend latency by route — all populated with live data](images/dashboard.png)
+
+A second dashboard, `grafana/dashboards/rum-business.json`, answers "does it matter?": login
+attempts by outcome (200 vs 401), user-perceived latency, browser-vs-server gap, page views
+by route, clicks by element, errors users hit, and a checkout funnel.
+
+![Business RUM dashboard](images/dashboard-business.png)
+
+The top row is four numbers: **login success**, **Apdex** (user satisfaction from the browser's
+own API timings, 500 ms threshold), **basket to order** and **API errors**. Further down:
+the searches people typed and the products they added to the basket. The queries, how to
+read each panel and the caveats are in [docs/changes/07-business-dashboard.md](docs/changes/07-business-dashboard.md).
+What makes those panels readable is in `overlay/frontend/src/tracer.ts`: clicks and form
+submits are named after the element (`click loginButton`), `hashchange` emits `navigation`
+spans, every span carries a random `session.id` and `user.logged_in`, and JS errors become
+`exception` spans. No email or user id is recorded.
 
 ## Iterating
 
@@ -177,6 +196,16 @@ docker compose build juice-shop && docker compose up -d juice-shop
   `ignoreLayersType: [ExpressLayerType.MIDDLEWARE]` so only the router and the actual
   request handler get a span. Verified before/after: a real request trace went from ~24
   spans to 4.
+
+- **A fresh EC2 is not ready when SSH answers.** `user_data` is still installing Docker
+  Compose and buildx, and `setup.sh` fails with exit 125. Run `sudo cloud-init status --wait`
+  on the instance first, then `./setup.sh`.
+- **Renaming spans breaks name-based queries.** Click spans are no longer called `click`, so
+  the Click rate panel filters on the `event_type` attribute instead.
+- **`unhandledrejection` never fires under Angular's zone.js**, so only `error` is reported.
+- **A click and the API call it triggers are still separate traces.** Login runs on the form's
+  `submit` event; we name it (`submit login-form`) but did not get the request nested under
+  it. Join them by `session.id` and time.
 
 ## Cleanup
 
