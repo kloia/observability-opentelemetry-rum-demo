@@ -2,7 +2,7 @@
  * OpenTelemetry Web SDK bootstrap — Real User Monitoring for Juice Shop's frontend.
  * Not part of upstream Juice Shop; added for the RUM demo.
  */
-import { trace, SpanStatusCode } from '@opentelemetry/api'
+import { trace, context, SpanStatusCode } from '@opentelemetry/api'
 import type { Span, Context } from '@opentelemetry/api'
 import { WebTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-web'
 import type { SpanProcessor } from '@opentelemetry/sdk-trace-web'
@@ -40,8 +40,24 @@ const sessionContext: SpanProcessor = {
   shutdown: async () => {}
 }
 
+// Coarse device facts for breakdowns. Names, not the full user agent or versions: enough to
+// split a chart, too little to fingerprint a visitor. Order matters: Android user agents also
+// say "Linux", iPhone ones also say "Mac OS X".
+const ua = navigator.userAgent
+const deviceType = /iPad|Tablet/i.test(ua) ? 'tablet' : /Mobi|Android|iPhone/i.test(ua) ? 'mobile' : 'desktop'
+const browserName = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : 'Other'
+const osName = /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Windows/.test(ua) ? 'Windows' : /Mac OS X/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : 'Other'
+
 const provider = new WebTracerProvider({
-  resource: resourceFromAttributes({ [ATTR_SERVICE_NAME]: 'juice-shop-frontend' }),
+  resource: resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: 'juice-shop-frontend',
+    'device.type': deviceType,
+    'browser.name': browserName,
+    'browser.platform': osName,
+    'browser.mobile': deviceType !== 'desktop',
+    'browser.language': navigator.language,
+    'browser.timezone': Intl.DateTimeFormat().resolvedOptions().timeZone
+  }),
   spanProcessors: [sessionContext, new BatchSpanProcessor(new OTLPTraceExporter({ url: collectorUrl }))]
 })
 
@@ -64,6 +80,9 @@ function describe (el: Element) {
   }
 }
 
+// The click span that fired last, for the fetch bridge below.
+let lastClick: { span: Span, at: number } | null = null
+
 registerInstrumentations({
   tracerProvider: provider,
   instrumentations: [
@@ -83,6 +102,7 @@ registerInstrumentations({
           const product = element.closest('mat-card')?.querySelector('.name')?.textContent?.trim()
           if (product) span.setAttribute('product.name', product.slice(0, 60))
         }
+        lastClick = { span, at: performance.now() }
         span.updateName(`${event} ${d.id || d.label || element.tagName.toLowerCase()}`)
         return false
       }
@@ -94,6 +114,19 @@ registerInstrumentations({
     })
   ]
 })
+
+// Angular calls fetch outside the click's context, so by default the request starts its own
+// trace. Re-activate the last click or submit span for a fetch that starts within 300 ms of
+// it. A time heuristic: an unrelated request inside that window is wrongly adopted.
+const CLICK_FETCH_WINDOW_MS = 300
+const instrumentedFetch = window.fetch
+window.fetch = (...args: Parameters<typeof fetch>) => {
+  if (lastClick && performance.now() - lastClick.at < CLICK_FETCH_WINDOW_MS) {
+    const ctx = trace.setSpan(context.active(), lastClick.span)
+    return context.with(ctx, () => instrumentedFetch.apply(window, args))
+  }
+  return instrumentedFetch.apply(window, args)
+}
 
 // Page views. documentLoad fires once per tab; this app moves between pages with the hash.
 const tracer = trace.getTracer('rum-custom')

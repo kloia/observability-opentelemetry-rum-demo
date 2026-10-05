@@ -4,6 +4,10 @@ set -e
 readonly SCRIPT_NAME="$(basename "$0")"
 readonly REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly JUICE_SHOP_REPO="https://github.com/juice-shop/juice-shop.git"
+# MaxMind's public test database (Apache-2.0/MIT), pinned. Fake data for a few documentation
+# IPs, enough to demo the country lookup without an account. Real lookups need GeoLite2-City.
+readonly GEOIP_TEST_DB_URL="https://raw.githubusercontent.com/maxmind/MaxMind-DB/276926d23b4109ca5452709bfb5931c338afb34c/test-data/GeoIP2-City-Test.mmdb"
+readonly GEOIP_TEST_DB_SHA256="ed972738e4e03a3e56e12041a6af4d91592249d110f7e4a647e5f2fa0e639c09"
 
 function log() {
   local level="$1"; shift
@@ -52,6 +56,22 @@ function apply_overlay() {
   (cd "$REPO_DIR/juice-shop" && git diff --stat)
 }
 
+function fetch_geoip_test_db() {
+  local readonly target="$REPO_DIR/geoip/GeoIP2-City-Test.mmdb"
+  if [ -f "$target" ]; then
+    log_info "geoip test database already present"
+    return 0
+  fi
+  log_info "downloading MaxMind's GeoIP2 City test database (pinned)"
+  mkdir -p "$REPO_DIR/geoip"
+  curl -fsSL -o "$target" "$GEOIP_TEST_DB_URL"
+  if ! echo "$GEOIP_TEST_DB_SHA256  $target" | sha256sum -c --quiet -; then
+    log_error "geoip test database checksum mismatch"
+    rm -f "$target"
+    return 1
+  fi
+}
+
 function main() {
   local tag="v20.2.0"
 
@@ -65,9 +85,12 @@ function main() {
 
   assert_is_installed git
   assert_is_installed docker
+  assert_is_installed curl
+  assert_is_installed sha256sum
 
   clone_juice_shop "$tag"
   apply_overlay "$tag"
+  fetch_geoip_test_db
 
   if [ -z "${GRAFANA_ADMIN_PASSWORD:-}" ]; then
     GRAFANA_ADMIN_PASSWORD="$(openssl rand -base64 18)"

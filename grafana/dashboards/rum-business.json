@@ -2,7 +2,7 @@
   "title": "Business RUM: what users feel",
   "uid": "rum-business",
   "schemaVersion": 39,
-  "version": 2,
+  "version": 5,
   "editable": true,
   "time": {
     "from": "now-1h",
@@ -188,16 +188,8 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "red",
+                "color": "blue",
                 "value": null
-              },
-              {
-                "color": "orange",
-                "value": 0.5
-              },
-              {
-                "color": "green",
-                "value": 0.8
               }
             ]
           }
@@ -378,7 +370,32 @@
         "defaults": {
           "unit": "s"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*juice-shop-frontend.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Browser (p95)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*juice-shop-backend.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Server (p95)"
+              }
+            ]
+          }
+        ]
       }
     },
     {
@@ -599,6 +616,363 @@
           "unit": "cps"
         },
         "overrides": []
+      }
+    },
+    {
+      "id": 20,
+      "type": "row",
+      "title": "Who your users are (device emulated, countries simulated in the lab)",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 44
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 14,
+      "type": "bargauge",
+      "title": "Page loads by device",
+      "description": "documentLoad spans by device.type, a coarse class derived from the user agent in the browser.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 45
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"juice-shop-frontend\" && name = \"documentLoad\" } | count_over_time() by (resource.device.type)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 15,
+      "type": "bargauge",
+      "title": "Apdex by device",
+      "description": "The Apdex of the top row, split by device class.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 45
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "(({ resource.service.name = \"juice-shop-frontend\" && kind = client && duration < 500ms } | rate() by (resource.device.type)) + ({ resource.service.name = \"juice-shop-frontend\" && kind = client && duration >= 500ms && duration < 2s } | rate() by (resource.device.type)) / 2) / ({ resource.service.name = \"juice-shop-frontend\" && kind = client } | rate() by (resource.device.type))",
+          "metricsQueryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 1,
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "yellow",
+                "value": 0.85
+              },
+              {
+                "color": "green",
+                "value": 0.94
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 16,
+      "type": "bargauge",
+      "title": "Page loads by browser",
+      "description": "Browser name only, no version: enough for a breakdown, too little to fingerprint.",
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 45
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"juice-shop-frontend\" && name = \"documentLoad\" } | count_over_time() by (resource.browser.name)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 17,
+      "type": "bargauge",
+      "title": "Page loads by country",
+      "description": "Country from the Collector's GeoIP lookup of the sender's address. The address is dropped before storage.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 53
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"juice-shop-frontend\" && name = \"documentLoad\" } | count_over_time() by (span.geo.country.iso_code)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "sum"
+          ]
+        },
+        "orientation": "horizontal",
+        "displayMode": "gradient",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 18,
+      "type": "bargauge",
+      "title": "Apdex by country",
+      "description": "Apdex split by country. Small countries mean few requests: read with care.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 53
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "(({ resource.service.name = \"juice-shop-frontend\" && kind = client && duration < 500ms } | rate() by (span.geo.country.iso_code)) + ({ resource.service.name = \"juice-shop-frontend\" && kind = client && duration >= 500ms && duration < 2s } | rate() by (span.geo.country.iso_code)) / 2) / ({ resource.service.name = \"juice-shop-frontend\" && kind = client } | rate() by (span.geo.country.iso_code))",
+          "metricsQueryType": "instant"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "none",
+          "min": 0,
+          "max": 1,
+          "decimals": 2,
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "yellow",
+                "value": 0.85
+              },
+              {
+                "color": "green",
+                "value": 0.94
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "orientation": "horizontal",
+        "displayMode": "basic",
+        "showUnfilled": true
+      }
+    },
+    {
+      "id": 19,
+      "type": "timeseries",
+      "title": "Browser wait p95 by device",
+      "description": "What the browser waited for on API calls, by device class.",
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 61
+      },
+      "datasource": {
+        "type": "tempo",
+        "uid": "tempo"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "tempo",
+            "uid": "tempo"
+          },
+          "queryType": "traceql",
+          "query": "{ resource.service.name = \"juice-shop-frontend\" && kind = client } | quantile_over_time(duration, .95) by (resource.device.type)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*mobile.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Mobile (p95)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*desktop.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Desktop (p95)"
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byRegexp",
+              "options": ".*tablet.*"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Tablet (p95)"
+              }
+            ]
+          }
+        ]
       }
     }
   ]

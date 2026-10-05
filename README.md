@@ -57,20 +57,23 @@ is generated for you (`infra/rum-demo-key.pem`, gitignored).
 
 ## 2. Deploy the stack
 
-This repo is private, so copy it to the instance directly rather than `git clone`-ing on
-the EC2:
+A fresh instance is still installing Docker Compose when SSH starts answering. Wait for it, then
+deploy:
 
 ```bash
 IP=$(terraform -chdir=infra output -raw public_ip)
-rsync -avz -e "ssh -i infra/rum-demo-key.pem" \
-  --exclude='.git' --exclude='juice-shop' --exclude='infra' \
-  ./ "ec2-user@$IP:/home/ec2-user/observability-opentelemetry-rum-demo/"
+ssh -i infra/rum-demo-key.pem "ec2-user@$IP" 'sudo cloud-init status --wait'
 
 ssh -i infra/rum-demo-key.pem "ec2-user@$IP"
 # on the EC2:
+git clone https://github.com/kloia/observability-opentelemetry-rum-demo.git
 cd observability-opentelemetry-rum-demo
 ./setup.sh
 ```
+
+To deploy local edits instead of the published repo, copy the working tree with `rsync -avz -e
+"ssh -i infra/rum-demo-key.pem" --exclude='.git' --exclude='juice-shop' --exclude='infra' ./
+"ec2-user@$IP:/home/ec2-user/observability-opentelemetry-rum-demo/"` and run `./setup.sh` there.
 
 The first build takes 5-10 minutes — the Dockerfile does a full `npm install` plus an
 Angular production build; a rebuild with Docker's layer cache warm took 4m27s in practice.
@@ -101,9 +104,10 @@ left at a weak default), and go to **Explore → Tempo**. Search by service name
 - `click`, one per user click,
 - `GET` / `POST`, one per API call the browser made.
 
-In this setup a click is *not* the parent of the API calls it triggers: they show up as
-separate traces (we did not dig into why; Angular's zone handling is the first suspect).
-What does join is fetch to backend: open a `GET` trace and expand the backend's own span
+A click is not the parent of the API calls it triggers out of the box: Angular calls `fetch`
+outside the click's context, so they show up as separate traces. `tracer.ts` bridges the two with
+a 300 ms heuristic (see [docs/changes/01](docs/changes/01-frontend-tracer.md), layer 7, for what it
+gets right and wrongly adopts). Fetch to backend joins either way: open a `GET` trace and expand the backend's own span
 under the same trace. The fetch call is same-origin,
 so the browser already sent `traceparent` with it — `overlay/tracing.ts` auto-instruments the
 backend (`getNodeAutoInstrumentations`) so it reads that header and creates a matching server
@@ -145,7 +149,8 @@ by route, clicks by element, errors users hit, and a checkout funnel.
 
 The top row is four numbers: **login success**, **Apdex** (user satisfaction from the browser's
 own API timings, 500 ms threshold), **basket to order** and **API errors**. Further down:
-the searches people typed and the products they added to the basket. The queries, how to
+the searches people typed, the products they added to the basket, and page loads and Apdex by
+device and by country. The queries, how to
 read each panel and the caveats are in [docs/changes/07-business-dashboard.md](docs/changes/07-business-dashboard.md).
 What makes those panels readable is in `overlay/frontend/src/tracer.ts`: clicks and form
 submits are named after the element (`click loginButton`), `hashchange` emits `navigation`
@@ -203,9 +208,22 @@ docker compose build juice-shop && docker compose up -d juice-shop
 - **Renaming spans breaks name-based queries.** Click spans are no longer called `click`, so
   the Click rate panel filters on the `event_type` attribute instead.
 - **`unhandledrejection` never fires under Angular's zone.js**, so only `error` is reported.
-- **A click and the API call it triggers are still separate traces.** Login runs on the form's
-  `submit` event; we name it (`submit login-form`) but did not get the request nested under
-  it. Join them by `session.id` and time.
+- **The click-to-request link is a time heuristic.** Any `fetch` starting within 300 ms of a
+  click or submit becomes its child, caused by it or not. Details and numbers in
+  [docs/changes/01](docs/changes/01-frontend-tracer.md).
+- **Personal data reaches Tempo unless you remove it.** `url.full` carries query strings and
+  fragments (search terms), and the backend's HTTP spans carry the visitor's IP. The Collector's
+  `transform/scrub` processor drops them; check what your own app puts in URLs. See
+  [docs/changes/05](docs/changes/05-collector-cors.md). This is not legal advice about GDPR or KVKK.
+- **Country lookup uses a test database.** The GeoIP processor (alpha) accepts only MaxMind City
+  databases, and the lab ships MaxMind's public test one, which knows a few documentation IPs;
+  the lab's traffic sends those in `x-forwarded-for` to simulate countries. For real lookups use
+  GeoLite2-City (free account) or a country header from your CDN. Trust `x-forwarded-for` only
+  when your own load balancer sets it. See [docs/changes/08](docs/changes/08-device-and-country.md).
+- **Sampling changes what the numbers mean.** With uniform random sampling, ratios (Apdex, error
+  share) stay roughly right but get noisier, while counts and `rate()` shrink by the sampling
+  fraction and Tempo does not scale them back. If errors are sampled at a higher rate than
+  successes, an error share computed from the sampled data is inflated.
 
 ## Cleanup
 

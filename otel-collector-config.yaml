@@ -3,6 +3,7 @@ receivers:
     protocols:
       http:
         endpoint: 0.0.0.0:4318
+        include_metadata: true # exposes request headers (x-forwarded-for) to processors
         cors:
           # Demo only: the browser's origin is the EC2's own IP, which isn't known until
           # the instance exists. A real deployment would list the exact origin instead.
@@ -10,6 +11,52 @@ receivers:
           allowed_headers: ["*"]
 
 processors:
+  # The browser's address, for the country lookup below. Browser spans carry no IP of their
+  # own; this is the address that sent the OTLP request. x-forwarded-for wins when present:
+  # trust it only if your own load balancer sets it. The lab sends it to simulate countries.
+  attributes/client_ip:
+    include:
+      match_type: strict
+      services: [juice-shop-frontend]
+    actions:
+      - key: client.address
+        from_context: client.address
+        action: upsert
+      - key: client.address
+        from_context: metadata.x-forwarded-for
+        action: upsert
+  transform/client_ip_clean:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - replace_pattern(attributes["client.address"], ",.*", "") where attributes["client.address"] != nil
+          - replace_pattern(attributes["client.address"], ":[0-9]+$", "") where attributes["client.address"] != nil and IsMatch(attributes["client.address"], "^[0-9.]+:[0-9]+$")
+  # Alpha. Accepts only MaxMind City databases (GeoIP2-City, GeoLite2-City). The lab mounts
+  # MaxMind's public test database, which knows a handful of documentation IPs.
+  geoip:
+    context: record
+    providers:
+      maxmind:
+        database_path: /etc/otelcol/GeoIP2-City-Test.mmdb
+  # Drops personal data before storage: query strings and URL fragments (search terms
+  # travel in them) and the visitor's IP, which the backend's HTTP spans record.
+  transform/scrub:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - replace_pattern(attributes["url.full"], "[?#].*", "") where attributes["url.full"] != nil
+          - delete_key(attributes, "url.query")
+          - delete_key(attributes, "client.address")
+          # Country and continent are enough for a breakdown; drop everything finer.
+          - delete_key(attributes, "geo.city_name")
+          - delete_key(attributes, "geo.postal_code")
+          - delete_key(attributes, "geo.location.lat")
+          - delete_key(attributes, "geo.location.lon")
+          - delete_key(attributes, "geo.region_name")
+          - delete_key(attributes, "geo.region.iso_code")
+          - delete_key(attributes, "geo.timezone")
   batch:
 
 exporters:
@@ -22,5 +69,5 @@ service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [batch]
+      processors: [attributes/client_ip, transform/client_ip_clean, geoip, transform/scrub, batch]
       exporters: [otlp/tempo]

@@ -18,3 +18,6 @@ coverage/
 
 # local scratch clone used to draft the instrumentation; shipped as overlay/ + setup.sh instead
 /juice-shop/
+
+# downloaded by setup.sh
+/geoip/

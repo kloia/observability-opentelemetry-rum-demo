@@ -9,6 +9,7 @@ services:
     command: ["--config=/etc/otel-collector-config.yaml"]
     volumes:
       - ./otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+      - ./geoip/GeoIP2-City-Test.mmdb:/etc/otelcol/GeoIP2-City-Test.mmdb:ro # downloaded by setup.sh
     ports:
       - "4318:4318" # OTLP/HTTP, the only protocol the Web SDK uses
     depends_on:

@@ -1,9 +1,9 @@
 # 1. Frontend tracer (`overlay/frontend/src/tracer.ts`)
 
 **Before:** the file does not exist. Juice Shop has no OpenTelemetry code.
-**After:** [115 lines](../../overlay/frontend/src/tracer.ts). The first 35 or so give you
+**After:** [about 150 lines](../../overlay/frontend/src/tracer.ts). The first 35 or so give you
 page-load, click and fetch spans. Everything after that makes the data answer business
-questions. Each layer below stands alone, so you can stop at any of them.
+questions. Layers 1 to 6 stand alone; layer 7 depends on layer 2, so you can stop at any of them.
 
 ## Layer 1: the basics (what you get with no thought)
 
@@ -132,3 +132,43 @@ want it in your tracing backend before you ship it.
 Result in Tempo:
 
 ![A click span carrying product.name, session.id and route](../../images/click-span-attributes.png)
+
+## Layer 7: bring the click and its API calls into one trace
+
+**Before:** a click span and the `fetch` it triggers are separate traces. Angular calls `fetch`
+outside the context the click span was made active in, so the Fetch instrumentation finds no
+parent and starts a new trace.
+
+**After:** remember the last click or submit span, and call `fetch` inside its context if the
+call starts within 300 ms:
+
+```ts
+lastClick = { span, at: performance.now() }          // in the click hook
+
+const instrumentedFetch = window.fetch
+window.fetch = (...args) => {
+  if (lastClick && performance.now() - lastClick.at < 300) {
+    const ctx = trace.setSpan(context.active(), lastClick.span)
+    return context.with(ctx, () => instrumentedFetch.apply(window, args))
+  }
+  return instrumentedFetch.apply(window, args)
+}
+```
+
+**Measured** on 3 rounds of 6 scripted shoppers (2026-10-05):
+
+| Click or submit span | Spans | With child API call | What the children were |
+| --- | --- | --- | --- |
+| `submit login-form` | 30 | 30 | `POST /rest/user/login` 30 of 30, plus the reads that follow a login |
+| `click Add to Basket` | 20 | 17 | `POST /api/BasketItems` 17 of 20, plus basket and product reads |
+| `click loginButton` | 30 | 0 | the request belongs to the form's `submit` span |
+
+Without the wrapper, none of the 7 click traces we inspected had a child; with it, 6 of 7 held the
+click, the browser's `fetch` and the backend's server span in one trace.
+
+**The cost:** it is a time heuristic, not causality. Any request that starts within 300 ms of an
+interaction is adopted, whether or not the interaction caused it. One `click dismiss cookie
+message` span adopted a `POST /api/Users`, which was our test script calling `fetch` directly.
+Traces get larger. Dashboards are unaffected: they read the `fetch` and server spans, whose names
+and attributes did not change. A wrapper that relies on the framework's own change detection (for
+example Angular's `NgZone`) would be more exact, and we did not try it.

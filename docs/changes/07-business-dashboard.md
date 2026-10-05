@@ -49,6 +49,8 @@ on its fetch span, so slow networks and slow devices count against you, which is
 - **Durations come back in seconds**, so the panel unit is `s`, not `ms`.
 - **The attribute is `http.request.method`**, not the older `http.method`, on the backend spans.
 - **The funnel route is `/api/BasketItems`** with no trailing slash. A trailing slash matches nothing.
+- **The gap panel's legend read `{p=0.95, resource.service.name="juice-shop-backend"}`.** A field override with `displayName` renames the series to "Server (p95)" and "Browser (p95)".
+- **"Basket to order" turned red at 50%.** Whether 50% is good depends on the shop, so that tile has one neutral colour.
 - **A stat showed `1.0` for 0.98.** Set `decimals` to 2 on the Apdex panel.
 - **Basket to order is a ratio of two rates**, not a per-shopper conversion. Someone who adds three items and orders once counts as 1 order against 3 additions. For a real conversion rate, count distinct `session.id` values, which TraceQL metrics cannot do.
 - **Quantiles are approximate.** Tempo estimates them from log-scale buckets.
