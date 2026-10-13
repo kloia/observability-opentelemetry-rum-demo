@@ -149,7 +149,7 @@ by route, clicks by element, errors users hit, and a checkout funnel.
 
 The top row is four numbers: **login success**, **Apdex** (user satisfaction from the browser's
 own API timings, 500 ms threshold), **basket to order** and **API errors**. Further down:
-the searches people typed, the products they added to the basket, and page loads and Apdex by
+the searches people typed, the products they added to the basket, and page views and Apdex by
 device and by country. The queries, how to
 read each panel and the caveats are in [docs/changes/07-business-dashboard.md](docs/changes/07-business-dashboard.md).
 What makes those panels readable is in `overlay/frontend/src/tracer.ts`: clicks and form
@@ -220,6 +220,9 @@ docker compose build juice-shop && docker compose up -d juice-shop
   the lab's traffic sends those in `x-forwarded-for` to simulate countries. For real lookups use
   GeoLite2-City (free account) or a country header from your CDN. Trust `x-forwarded-for` only
   when your own load balancer sets it. See [docs/changes/08](docs/changes/08-device-and-country.md).
+- **One click can produce two spans.** Under zone.js the user-interaction instrumentation opens a
+  span per click listener, which doubled product and click counts. `tracer.ts` drops a duplicate
+  from the same element within 50 ms; see [docs/changes/01](docs/changes/01-frontend-tracer.md), layer 8.
 - **Sampling changes what the numbers mean.** With uniform random sampling, ratios (Apdex, error
   share) stay roughly right but get noisier, while counts and `rate()` shrink by the sampling
   fraction and Tempo does not scale them back. If errors are sampled at a higher rate than

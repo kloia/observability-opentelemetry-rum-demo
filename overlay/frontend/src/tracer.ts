@@ -82,6 +82,9 @@ function describe (el: Element) {
 
 // The click span that fired last, for the fetch bridge below.
 let lastClick: { span: Span, at: number } | null = null
+// For the duplicate check in the click hook below.
+const DUPLICATE_WINDOW_MS = 50
+let lastInteraction: { element: Element | null, type: string, at: number } = { element: null, type: '', at: -Infinity }
 
 registerInstrumentations({
   tracerProvider: provider,
@@ -90,8 +93,14 @@ registerInstrumentations({
     new UserInteractionInstrumentation({
       // Login runs on the form's submit event, not on a click, so listen for both.
       eventNames: ['click', 'submit'],
-      // The hook gets the DOM element and the span: label the interaction, never drop it.
+      // The hook gets the DOM element and the span: label the interaction, and drop a duplicate.
       shouldPreventSpanCreation: (event, element, span) => {
+        // Under zone.js the instrumentation opens one span per listener task, so one click on
+        // a button with two click listeners yields two identical spans (counts doubled in the
+        // lab). One element, one event type, within 50 ms is the same interaction: keep the first.
+        const now = performance.now()
+        if (element === lastInteraction.element && event === lastInteraction.type && now - lastInteraction.at < DUPLICATE_WINDOW_MS) return true
+        lastInteraction = { element, type: event, at: now }
         const d = describe(element)
         span.setAttribute('ui.element.id', d.id)
         span.setAttribute('ui.element.label', d.label)

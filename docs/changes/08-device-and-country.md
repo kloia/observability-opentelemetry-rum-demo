@@ -3,7 +3,7 @@
 **Before:** every span says `service.name = juice-shop-frontend` and nothing about the
 visitor's device or location. A dashboard can tell you the app is slow, not for whom.
 **After:** coarse device facts are added in the browser, and a country is added in the
-Collector. The new "Who your users are" row of the business dashboard splits page loads
+Collector. The new "Who your users are" row of the business dashboard splits page views
 and Apdex by both.
 
 ## Device: `overlay/frontend/src/tracer.ts`
@@ -69,6 +69,10 @@ the region and the time zone, so only `geo.country.*` and `geo.continent.*` reac
 **Verified on 2026-10-05:** 12 page loads from 6 emulated shoppers landed with the expected
 device, browser, OS, time zone and country, and a query for spans that still had
 `client.address`, `geo.city_name`, `geo.location.lat` or `geo.postal_code` returned 0 traces.
+
+**An address the database does not know shows as `nil`.** The country panels then have a
+`nil` bar. In the lab that is anyone browsing from their own network, because the test
+database knows only a few documentation addresses; it is not a bug in the query.
 
 ## The database, and what to use outside the lab
 

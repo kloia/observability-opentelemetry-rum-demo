@@ -13,7 +13,7 @@ Shorthand below: `FE` = `resource.service.name = "juice-shop-frontend"`,
 | Panel | Meaning | Query |
 | --- | --- | --- |
 | Login success | Share of login attempts the server accepted | `({ BE && kind = server && span.http.route = "/rest/user/login" && span.http.response.status_code = 200 } \| rate()) / ({ ...same without the status filter } \| rate())` |
-| Apdex | See below | `(({ API && duration < 500ms } \| rate()) + ({ API && duration >= 500ms && duration < 2s } \| rate()) / 2) / ({ API } \| rate())` |
+| Apdex | See below | `((({ API && duration < 500ms } \| rate()) + ({ API && duration < 2s } \| rate())) / ({ API } \| rate())) / 2` |
 | Basket to order | Orders placed / items added | `({ BE && kind = server && span.http.route = "/rest/basket/:id/checkout" } \| rate()) / ({ BE && kind = server && span.http.request.method = "POST" && span.http.route = "/api/BasketItems" } \| rate())` |
 | API errors | Share of the browser's API calls answered 4xx or 5xx | `({ API && span.http.response.status_code >= 400 } \| rate()) / ({ API } \| rate())` |
 
@@ -24,6 +24,9 @@ T (here 500 ms). A request faster than T is *satisfied* and counts 1. Slower tha
 faster than 4T (2 s) is *tolerating* and counts one half. Slower than that counts 0.
 
 `Apdex = (satisfied + tolerating / 2) / total`
+
+Because `tolerating = under 2 s - under 500 ms`, the dashboard computes the same number as
+`((under 500 ms + under 2 s) / total) / 2`, which keeps working when a group has no tolerating calls.
 
 Read it as: 0.94 and up is excellent, 0.85 to 0.94 good, 0.7 to 0.85 fair, below 0.7 poor.
 The thresholds on the panel use those bands. The duration is what the **browser** measured
@@ -51,6 +54,8 @@ on its fetch span, so slow networks and slow devices count against you, which is
 - **The funnel route is `/api/BasketItems`** with no trailing slash. A trailing slash matches nothing.
 - **The gap panel's legend read `{p=0.95, resource.service.name="juice-shop-backend"}`.** A field override with `displayName` renames the series to "Server (p95)" and "Browser (p95)".
 - **"Basket to order" turned red at 50%.** Whether 50% is good depends on the shop, so that tile has one neutral colour.
+- **Apdex vanished for a device or country with no half-happy calls.** The first formula added a separate `500 ms to 2 s` rate. TraceQL metrics returns no series for an empty group, so the whole division returned nothing: a 15-minute window of only fast calls showed "No data". Rewriting it as `(under 500 ms + under 2 s) / total / 2` is the same score and always has its terms. It still returns nothing if every call is slower than 2 s.
+- **"Page loads" panels were empty for anyone who stayed inside the app.** `documentLoad` fires once per full page load. The device, browser and country panels now count `documentLoad` plus `navigation` spans and are called "Page views".
 - **A stat showed `1.0` for 0.98.** Set `decimals` to 2 on the Apdex panel.
 - **Basket to order is a ratio of two rates**, not a per-shopper conversion. Someone who adds three items and orders once counts as 1 order against 3 additions. For a real conversion rate, count distinct `session.id` values, which TraceQL metrics cannot do.
 - **Quantiles are approximate.** Tempo estimates them from log-scale buckets.

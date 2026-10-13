@@ -155,13 +155,12 @@ window.fetch = (...args) => {
 }
 ```
 
-**Measured** on 3 rounds of 6 scripted shoppers (2026-10-05):
+**Measured** on 2 rounds of 6 scripted shoppers, after the duplicate fix of layer 8 (2026-10-13):
 
 | Click or submit span | Spans | With child API call | What the children were |
 | --- | --- | --- | --- |
-| `submit login-form` | 30 | 30 | `POST /rest/user/login` 30 of 30, plus the reads that follow a login |
-| `click Add to Basket` | 20 | 17 | `POST /api/BasketItems` 17 of 20, plus basket and product reads |
-| `click loginButton` | 30 | 0 | the request belongs to the form's `submit` span |
+| `submit login-form` | 20 | 20 | `POST /rest/user/login` 20 of 20, plus the reads that follow a login |
+| `click Add to Basket` | 12 | 12 | `POST /api/BasketItems` 12 of 12, plus basket and product reads |
 
 Without the wrapper, none of the 7 click traces we inspected had a child; with it, 6 of 7 held the
 click, the browser's `fetch` and the backend's server span in one trace.
@@ -172,3 +171,37 @@ message` span adopted a `POST /api/Users`, which was our test script calling `fe
 Traces get larger. Dashboards are unaffected: they read the `fetch` and server spans, whose names
 and attributes did not change. A wrapper that relies on the framework's own change detection (for
 example Angular's `NgZone`) would be more exact, and we did not try it.
+
+## Layer 8: one click, one span
+
+**Before:** a single click on a basket button could produce two identical spans. In the lab the
+product counts were doubled for some products: a user added one of each product and the panel
+showed 2 for some of them.
+
+**Why:** with zone.js the user-interaction instrumentation opens one span per event **listener
+task** that runs for the event, not one per click (`_patchZoneRunTask` calls `_createSpan` for
+each task). A button with two click listeners yields two spans, a few hundred microseconds apart,
+same element, same session. The first click after a page loads had one listener and made one span;
+later clicks had two. It also inflated `Clicks by element`, the cookie banner and welcome
+banner counts, and an earlier version of the click-to-request numbers above (20 spans for 18 clicks).
+
+**After:** the hook drops a span for the same element and the same event type that follows another
+within 50 ms:
+
+```ts
+const DUPLICATE_WINDOW_MS = 50
+let lastInteraction = { element: null, type: '', at: -Infinity }
+// in shouldPreventSpanCreation:
+const now = performance.now()
+if (element === lastInteraction.element && event === lastInteraction.type && now - lastInteraction.at < DUPLICATE_WINDOW_MS) return true
+lastInteraction = { element, type: event, at: now }
+```
+
+Returning `true` from `shouldPreventSpanCreation` discards the span before it is stored.
+
+**Verified** (2026-10-13), 2 rounds of 6 scripted shoppers: 12 `click Add to Basket` spans against 12
+`POST /api/BasketItems` server spans against 12 add clicks the script made, 20 `submit login-form`
+spans for 20 login attempts, and no two spans from one session with the same name within 5 ms.
+
+**Limit:** two real, deliberate clicks on the same element within 50 ms would count once. Nobody
+clicks that fast, but an automated test could.
