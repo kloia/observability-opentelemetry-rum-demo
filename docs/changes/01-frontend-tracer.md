@@ -3,7 +3,7 @@
 **Before:** the file does not exist. Juice Shop has no OpenTelemetry code.
 **After:** [about 150 lines](../../overlay/frontend/src/tracer.ts). The first 35 or so give you
 page-load, click and fetch spans. Everything after that makes the data answer business
-questions. Layers 1 to 6 stand alone; layer 7 depends on layer 2, so you can stop at any of them.
+questions. Layers 1 to 6 stand alone; layers 7 and 8 depend on layer 2, so you can stop at any of them.
 
 ## Layer 1: the basics (what you get with no thought)
 
